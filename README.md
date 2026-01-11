@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Facebook Auto Poster
 
-## Getting Started
+Sistem posting otomatis ke 10 Fanspage Facebook menggunakan:
+- **Admin Panel**: Next.js + Vercel
+- **Worker**: Python Flask + Cloud Run
+- **Storage**: Google Drive
+- **Database**: Firestore
+- **Scheduler**: Cloud Scheduler
 
-First, run the development server:
+## Features
+- ✅ Upload gambar batch (max 10)
+- ✅ AI Caption generation (Gemini 1.5 Vision)
+- ✅ Preview & edit caption
+- ✅ Kill Switch (Emergency stop)
+- ✅ Anti-double post (Lock system)
+- ✅ Error classification
 
+## Quick Start
+
+### Development
 ```bash
+# Admin Panel
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+
+# Worker (optional)
+cd backend-worker
+pip install -r requirements.txt
+python app.py
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Production
+See [DEPLOY.md](./DEPLOY.md)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Config
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Parameter | Value |
+|-----------|-------|
+| Fanpages | 10 |
+| Interval | Every 6 minutes |
+| Hours | 05:00 - 22:00 WIB |
+| Posts/FP/Day | 17 |
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Structure
+```
+fb-auto-poster/
+├── app/                    # Next.js pages & API
+├── lib/                    # Utilities
+├── backend-worker/         # Cloud Run (Python)
+└── DEPLOY.md              # Deployment guide
+```
