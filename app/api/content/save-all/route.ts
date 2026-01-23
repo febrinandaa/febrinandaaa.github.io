@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadToDrive, getOrCreateFolder, DRIVE_FOLDER_ID } from '@/lib/drive';
-import { getDb, COLLECTIONS } from '@/lib/firestore';
-import { nowWIB } from '@/lib/dayjs';
+import { supabase, TABLES } from '@/lib/supabase';
+import { uploadToCloudinary } from '@/lib/cloudinary';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,17 +12,8 @@ export async function POST(request: NextRequest) {
         const captions = formData.getAll('captions') as string[];
 
         if (!pageId || files.length === 0) {
-            return NextResponse.json(
-                { error: 'Missing pageId or files' },
-                { status: 400 }
-            );
+            return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
-
-        const db = getDb();
-
-        // Get or create folder for this page
-        const pageFolderId = await getOrCreateFolder(DRIVE_FOLDER_ID, pageId);
-        const imagesFolderId = await getOrCreateFolder(pageFolderId, 'images');
 
         const results = [];
 
@@ -31,54 +21,50 @@ export async function POST(request: NextRequest) {
             const file = files[i];
             const caption = captions[i] || '';
 
-            // Generate unique filename
-            const timestamp = Date.now();
-            const ext = file.name.split('.').pop() || 'jpg';
-            const fileName = `${pageId}_${timestamp}_${i}.${ext}`;
-
-            // Upload to Drive
+            // Convert file to buffer for Cloudinary
             const bytes = await file.arrayBuffer();
             const buffer = Buffer.from(bytes);
-            const driveFileId = await uploadToDrive(
-                buffer,
-                fileName,
-                file.type,
-                imagesFolderId
-            );
 
-            // Save to Firestore
-            const contentData = {
-                page_id: pageId,
-                drive_file_id: driveFileId,
-                file_name: fileName,
-                base_caption: caption,
-                generated_by_ai: true,
-                edited_by_user: false,
-                used_count: 0,
-                created_at: nowWIB().toISOString(),
-            };
+            // Upload to Cloudinary
+            const timestamp = Date.now();
+            const fileName = `${pageId}_${timestamp}_${i}.jpg`;
+            const folder = `fb-auto-poster/${pageId}`;
 
-            const docRef = await db
-                .collection(COLLECTIONS.CONTENT)
-                .add(contentData);
+            const cloudinaryResult = await uploadToCloudinary(buffer, fileName, folder);
+
+            // Save to Supabase
+            const { data, error } = await supabase
+                .from(TABLES.CONTENT)
+                .insert({
+                    page_id: pageId,
+                    file_name: fileName,
+                    cloudinary_url: cloudinaryResult.secureUrl,
+                    cloudinary_public_id: cloudinaryResult.publicId,
+                    base_caption: caption,
+                    used_count: 0
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
 
             results.push({
-                id: docRef.id,
-                driveFileId,
-                fileName,
+                id: data.id,
+                file_name: data.file_name,
+                cloudinary_url: data.cloudinary_url
             });
         }
 
         return NextResponse.json({
             success: true,
-            count: results.length,
-            items: results,
+            saved: results.length,
+            items: results
         });
-    } catch (error) {
-        console.error('Save all error:', error);
-        return NextResponse.json(
-            { error: 'Failed to save content' },
-            { status: 500 }
-        );
+
+    } catch (error: any) {
+        console.error('Save error:', error);
+        return NextResponse.json({
+            error: error.message || 'Failed to save content'
+        }, { status: 500 });
     }
 }

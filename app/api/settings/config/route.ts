@@ -3,27 +3,42 @@ import { supabase, TABLES } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
+export async function GET() {
+    try {
+        const { data } = await supabase
+            .from(TABLES.SETTINGS)
+            .select('value')
+            .eq('key', 'stockConfig')
+            .single();
+
+        const config = data?.value || { interval: 1, duration: 30 };
+
+        return NextResponse.json(config);
+    } catch {
+        return NextResponse.json({ interval: 1, duration: 30 });
+    }
+}
+
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const enabled = body.enabled ?? true;
+        const { interval, duration } = body;
 
-        // Upsert setting
         const { error } = await supabase
             .from(TABLES.SETTINGS)
             .upsert({
-                key: 'systemEnabled',
-                value: { enabled }
+                key: 'stockConfig',
+                value: { interval, duration }
             }, { onConflict: 'key' });
 
         if (error) throw error;
 
         return NextResponse.json({
             success: true,
-            enabled
+            config: { interval, duration }
         });
     } catch (error: any) {
-        console.error('Toggle error:', error);
+        console.error('Config update error:', error);
         return NextResponse.json({
             error: error.message
         }, { status: 500 });

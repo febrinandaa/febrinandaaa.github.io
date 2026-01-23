@@ -22,16 +22,38 @@ Rules:
 - Soft, reflective tone`;
 
 export async function generateCaption(imageBase64: string, mimeType: string): Promise<string> {
-    const result = await geminiModel.generateContent([
-        CAPTION_PROMPT,
-        {
-            inlineData: {
-                data: imageBase64,
-                mimeType: mimeType,
-            },
-        },
-    ]);
+    const maxRetries = 3;
+    let lastError: any;
 
-    const response = result.response;
-    return response.text();
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            const result = await geminiModel.generateContent([
+                CAPTION_PROMPT,
+                {
+                    inlineData: {
+                        data: imageBase64,
+                        mimeType: mimeType,
+                    },
+                },
+            ]);
+
+            const response = result.response;
+            return response.text();
+        } catch (error: any) {
+            lastError = error;
+            console.error(`Gemini API error (attempt ${attempt + 1}/${maxRetries}):`, error.message);
+
+            // If rate limited, wait longer before retry
+            if (error.message?.includes('429') || error.message?.includes('rate')) {
+                const waitTime = (attempt + 1) * 10000; // 10s, 20s, 30s
+                console.log(`Rate limited, waiting ${waitTime / 1000}s before retry...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            } else {
+                // For other errors, wait less
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        }
+    }
+
+    throw lastError || new Error('Failed to generate caption after retries');
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, COLLECTIONS } from '@/lib/firestore';
+import { db, COLLECTIONS } from '@/lib/firestore';
 import { nowWIB } from '@/lib/dayjs';
 
 export const dynamic = 'force-dynamic';
@@ -17,10 +17,10 @@ export async function POST(request: NextRequest) {
         const body = await request.json();
         const { job_id, success, result, completed_at } = body;
 
-        const db = getDb();
+        const dbInstance = db;
 
         // Create log entry
-        await db.collection(COLLECTIONS.LOGS).add({
+        await dbInstance.collection(COLLECTIONS.LOGS).add({
             job_id,
             success,
             page_id: result?.page_id,

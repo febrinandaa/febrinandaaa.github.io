@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, COLLECTIONS, isSystemEnabled, acquireLock } from '@/lib/firestore';
+import { db, COLLECTIONS, isSystemEnabled, acquireLock } from '@/lib/firestore';
 import { nowWIB } from '@/lib/dayjs';
 import { FANPAGES } from '@/lib/config';
 
@@ -65,8 +65,8 @@ export async function POST(request: NextRequest) {
         }
 
         // Get next content for this page
-        const db = getDb();
-        const contentQuery = await db
+        const dbInstance = db;
+        const contentQuery = await dbInstance
             .collection(COLLECTIONS.CONTENT)
             .where('page_id', '==', pageId)
             .orderBy('used_count', 'asc')
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
         const content = contentDoc.data();
 
         // Get page config (access token would be stored in Firestore pages collection)
-        const pageDoc = await db
+        const pageDoc = await dbInstance
             .collection(COLLECTIONS.PAGES)
             .doc(pageId)
             .get();

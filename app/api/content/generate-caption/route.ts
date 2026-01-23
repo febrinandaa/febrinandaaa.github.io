@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateCaption } from '@/lib/gemini';
+import { generateCaption } from '@/lib/groq';
 
 export async function POST(request: NextRequest) {
     try {

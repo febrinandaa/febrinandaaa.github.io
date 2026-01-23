@@ -1,37 +1,47 @@
 import { initializeApp, getApps, cert, App } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 
-let app: App | null = null;
-let db: Firestore | null = null;
+// Lazy initialization - only create instance when first accessed
+let _db: Firestore | null = null;
 
 function getFirebaseAdmin(): { app: App; db: Firestore } {
-    if (!db) {
-        if (getApps().length === 0) {
-            const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    let app: App;
 
-            if (!serviceAccountKey) {
-                throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is not set');
-            }
+    if (getApps().length === 0) {
+        const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
-            const serviceAccount = JSON.parse(serviceAccountKey);
-
-            app = initializeApp({
-                credential: cert(serviceAccount),
-            });
-        } else {
-            app = getApps()[0];
+        if (!serviceAccountKey) {
+            throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is not set');
         }
 
-        db = getFirestore(app!);
+        // Fix newlines in private_key that may be corrupted by env var storage
+        const serviceAccount = JSON.parse(serviceAccountKey);
+
+        app = initializeApp({
+            credential: cert(serviceAccount),
+        });
+    } else {
+        app = getApps()[0];
     }
 
-    return { app: app!, db };
+    const db = getFirestore(app);
+    return { app, db };
 }
 
-// Lazy getter for firestore
+// Lazy getter for db - only initialize on first access at runtime, not build time
 export function getDb(): Firestore {
-    return getFirebaseAdmin().db;
+    if (!_db) {
+        _db = getFirebaseAdmin().db;
+    }
+    return _db;
 }
+
+// For backward compatibility - export as getter
+export const db = new Proxy({} as Firestore, {
+    get(_, prop) {
+        return Reflect.get(getDb(), prop);
+    }
+});
 
 // Collections
 export const COLLECTIONS = {
@@ -44,20 +54,18 @@ export const COLLECTIONS = {
 
 // Kill Switch
 export async function isSystemEnabled(): Promise<boolean> {
-    const db = getDb();
-    const doc = await db.collection(COLLECTIONS.SETTINGS).doc('system').get();
+    const doc = await getDb().collection(COLLECTIONS.SETTINGS).doc('system').get();
     if (!doc.exists) return true;
     return doc.data()?.enabled !== false;
 }
 
 // Lock Management
 export async function acquireLock(pageId: string, hour: string): Promise<boolean> {
-    const db = getDb();
     const lockId = `${new Date().toISOString().split('T')[0]}-${hour}-${pageId}`;
-    const lockRef = db.collection(COLLECTIONS.LOCKS).doc(lockId);
+    const lockRef = getDb().collection(COLLECTIONS.LOCKS).doc(lockId);
 
     try {
-        await db.runTransaction(async (transaction) => {
+        await getDb().runTransaction(async (transaction) => {
             const lockDoc = await transaction.get(lockRef);
             if (lockDoc.exists) {
                 throw new Error('Lock already exists');

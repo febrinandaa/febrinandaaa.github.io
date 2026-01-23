@@ -1,68 +1,173 @@
+'use client';
+
+import SidebarLayout from '@/components/SidebarLayout';
+import { BarChart3, Upload, Clock, CheckCircle, AlertTriangle, CheckSquare } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { FANPAGES, getFanpageById } from '@/lib/config';
 import Link from 'next/link';
-import { FANPAGES } from '@/lib/config';
-import { Folder, Settings, LayoutDashboard } from 'lucide-react';
+import Image from 'next/image';
+
+interface StockData {
+  stock: Record<string, number>;
+  target: number;
+  config: {
+    interval: number;
+    duration: number;
+  };
+}
 
 export default function Dashboard() {
+  const [data, setData] = useState<StockData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/content/stock')
+      .then(res => res.json())
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const getStatusColor = (count: number, target: number) => {
+    const percentage = (count / target) * 100;
+    if (percentage >= 120) return 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20';
+    if (percentage >= 100) return 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20';
+    return 'text-red-500 bg-red-500/10 border-red-500/20';
+  };
+
+  const getStatusText = (count: number, target: number) => {
+    const percentage = (count / target) * 100;
+    if (percentage >= 120) return 'Safe';
+    if (percentage >= 100) return 'Warning';
+    return 'Critical';
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Header */}
-      <header className="border-b border-slate-700/50 backdrop-blur-sm bg-slate-900/50 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
-              <LayoutDashboard className="w-5 h-5 text-white" />
+    <SidebarLayout>
+      <div className="p-8">
+        {/* Header */}
+        <div className="mb-8 flex items-end justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">Dashboard</h1>
+            <p className="text-slate-500 dark:text-slate-400">Content Stock Monitoring</p>
+          </div>
+          {data && (
+            <div className="text-right">
+              <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">Target Stock</div>
+              <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{data.target} Posts</div>
+              <div className="text-xs text-slate-400">({data.config.duration} days @ {data.config.interval}h interval)</div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-white">FB Auto Poster</h1>
-              <p className="text-xs text-slate-400">Content Management System</p>
+          )}
+        </div>
+
+        {/* Global Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {/* Total Pages */}
+          <div className="bg-white/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-2xl p-6 backdrop-blur-sm">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-500/20 rounded-xl flex items-center justify-center">
+                <Upload className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800 dark:text-white">{FANPAGES.length}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Total Pages</p>
+              </div>
             </div>
           </div>
-          <Link
-            href="/settings"
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-          >
-            <Settings className="w-4 h-4" />
-            <span>Settings</span>
-          </Link>
-        </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-white mb-2">Fanpages</h2>
-          <p className="text-slate-400">Select a fanpage to manage content</p>
+          {/* Total Pending Stock */}
+          <div className="bg-white/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-2xl p-6 backdrop-blur-sm">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-purple-100 dark:bg-purple-500/20 rounded-xl flex items-center justify-center">
+                <BarChart3 className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800 dark:text-white">
+                  {data ? Object.values(data.stock).reduce((a, b) => a + b, 0) : '...'}
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Total Pending Posts</p>
+              </div>
+            </div>
+          </div>
+
+          {/* System Status */}
+          <div className="bg-white/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-2xl p-6 backdrop-blur-sm">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-orange-100 dark:bg-orange-500/20 rounded-xl flex items-center justify-center">
+                <Clock className="w-6 h-6 text-orange-600 dark:text-orange-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800 dark:text-white">Active</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">System Status</p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Fanpage Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {FANPAGES.map((fp, index) => (
-            <Link
-              key={fp.id}
-              href={`/content/${fp.id}`}
-              className="group relative bg-slate-800/50 border border-slate-700/50 rounded-2xl p-6 hover:bg-slate-800 hover:border-indigo-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-indigo-500/10"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-indigo-500/20 to-purple-600/20 rounded-xl flex items-center justify-center group-hover:from-indigo-500/30 group-hover:to-purple-600/30 transition-colors">
-                  <Folder className="w-6 h-6 text-indigo-400" />
+        {/* Fanpage Status Grid */}
+        <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-6">Stock Status per Page</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {FANPAGES.map((fp) => {
+            const count = data?.stock[fp.id] || 0;
+            const target = data?.target || 1;
+            const statusColor = getStatusColor(count, target);
+            const statusText = getStatusText(count, target);
+
+            return (
+              <Link
+                href={`/content/${fp.id}`}
+                key={fp.id}
+                className="group bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/50 rounded-2xl p-5 hover:border-indigo-500/50 transition-all shadow-sm hover:shadow-md"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    {/* Profile Pic */}
+                    <div className="relative w-12 h-12 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700 border border-slate-100 dark:border-slate-600">
+                      {fp.fbPageId ? (
+                        <Image
+                          src={`https://graph.facebook.com/${fp.fbPageId}/picture?type=large`}
+                          alt={fp.name}
+                          fill
+                          className="object-cover"
+                          unoptimized // specific for external FB images to avoid next/image optimizing strictly
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{fp.id.replace('FP_', '')}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-slate-900 dark:text-white truncate max-w-[150px]">{fp.name}</h3>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className={`w-2 h-2 rounded-full ${count >= target ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">{statusText}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`px-3 py-1 rounded-full text-xs font-medium border ${statusColor}`}>
+                    {Math.round((count / target) * 100)}%
+                  </div>
                 </div>
-                <span className="text-xs font-medium text-slate-500 bg-slate-700/50 px-2 py-1 rounded-md">
-                  #{index + 1}
-                </span>
-              </div>
-              <h3 className="text-lg font-semibold text-white mb-1">{fp.name}</h3>
-              <p className="text-sm text-slate-400">ID: {fp.id}</p>
-              <div className="absolute bottom-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity">
-                <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center">
-                  <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
+
+                {/* Progress Bar */}
+                <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden mb-3">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${count >= target ? 'bg-emerald-500' : count >= target * 0.5 ? 'bg-yellow-500' : 'bg-red-500'
+                      }`}
+                    style={{ width: `${Math.min(100, (count / target) * 100)}%` }}
+                  ></div>
                 </div>
-              </div>
-            </Link>
-          ))}
+
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500 dark:text-slate-400">Stock: <b className="text-slate-900 dark:text-white">{count}</b></span>
+                  <span className="text-slate-400 dark:text-slate-500">Target: {target}</span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
-      </main>
-    </div>
+
+      </div>
+    </SidebarLayout>
   );
 }
