@@ -1,93 +1,90 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, COLLECTIONS, isSystemEnabled } from '@/lib/firestore';
-import { downloadFromDrive } from '@/lib/drive';
+import { supabase, TABLES, isSystemEnabled } from '@/lib/supabase';
 import { nowWIB } from '@/lib/dayjs';
 import { FANPAGES } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // 60 seconds timeout for Vercel
+export const maxDuration = 60;
 
-// Generate idempotency key: YYYYMMDD-HH-mm(rounded to 6min)
+// Generate idempotency key
 function getExecutionKey(): string {
     const now = nowWIB();
     const roundedMinute = Math.floor(now.minute() / 6) * 6;
     return now.format('YYYYMMDD-HH') + `-${String(roundedMinute).padStart(2, '0')}`;
 }
 
-// Calculate which page should post based on current time
+// Calculate which page should post
 function getScheduledPage(): { pageId: string; slotIndex: number } | null {
     const now = nowWIB();
     const hour = now.hour();
     const minute = now.minute();
 
-    // Operating hours: 05:00 - 22:00 WIB (Defense in Depth)
-    if (hour < 5 || hour >= 22) {
-        return null;
-    }
+    if (hour < 5 || hour >= 22) return null;
 
-    // Calculate slot (every 6 minutes)
     const slotIndex = Math.floor(minute / 6) % FANPAGES.length;
     const page = FANPAGES[slotIndex];
 
-    return {
-        pageId: page.id,
-        slotIndex
-    };
+    return { pageId: page.id, slotIndex };
 }
 
-// Post photo to Facebook
+// Post to Facebook
 async function postToFacebook(
     pageId: string,
     accessToken: string,
     imageData: Buffer,
     caption: string
 ): Promise<{ success: boolean; postId?: string; error?: string }> {
-    const FB_API_URL = 'https://graph.facebook.com/v19.0';
-
     try {
-        const formData = new FormData();
-        formData.append('source', new Blob([new Uint8Array(imageData)], { type: 'image/jpeg' }), 'image.jpg');
-        formData.append('message', caption);
-        formData.append('access_token', accessToken);
+        // Step 1: Upload photo to get photo_id (unpublished)
+        const uploadFormData = new FormData();
+        uploadFormData.append('source', new Blob([new Uint8Array(imageData)], { type: 'image/jpeg' }), 'image.jpg');
+        uploadFormData.append('published', 'false'); // Upload but don't publish yet
+        uploadFormData.append('access_token', accessToken);
 
-        const response = await fetch(`${FB_API_URL}/${pageId}/photos`, {
+        const uploadResponse = await fetch(`https://graph.facebook.com/v19.0/${pageId}/photos`, {
             method: 'POST',
-            body: formData,
+            body: uploadFormData,
         });
 
-        const result = await response.json();
+        const uploadResult = await uploadResponse.json();
 
-        if (result.error) {
-            return { success: false, error: result.error.message };
+        if (uploadResult.error) {
+            return { success: false, error: uploadResult.error.message };
         }
 
-        return { success: true, postId: result.post_id || result.id };
+        const photoId = uploadResult.id;
+
+        // Step 2: Create feed post with the uploaded photo
+        const feedFormData = new FormData();
+        feedFormData.append('message', caption);
+        feedFormData.append('attached_media[0]', JSON.stringify({ media_fbid: photoId }));
+        feedFormData.append('access_token', accessToken);
+
+        const feedResponse = await fetch(`https://graph.facebook.com/v19.0/${pageId}/feed`, {
+            method: 'POST',
+            body: feedFormData,
+        });
+
+        const feedResult = await feedResponse.json();
+
+        if (feedResult.error) {
+            return { success: false, error: feedResult.error.message };
+        }
+
+        return { success: true, postId: feedResult.id };
     } catch (error) {
         return { success: false, error: String(error) };
     }
 }
 
-// Log cron execution to Firestore
-async function logCronExecution(data: {
-    execution_key: string;
-    executed: boolean;
-    reason?: string;
-    page_id?: string;
-    posts_processed?: number;
-    posts_published?: number;
-    success?: boolean;
-    error_type?: string;
-    error_message?: string;
-    duration_ms: number;
-}) {
-    const db = getDb();
-    await db.collection('cron_logs').add({
-        ...data,
-        timestamp: nowWIB().toISOString()
+export async function GET() {
+    return NextResponse.json({
+        endpoint: '/api/cron',
+        method: 'POST required',
+        message: 'Use POST method with Authorization header to trigger cron'
     });
 }
 
-// Main cron handler - POST only for security
 export async function POST(request: NextRequest) {
     const startTime = Date.now();
     const executionKey = getExecutionKey();
@@ -101,104 +98,63 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        // 2. Verify User-Agent (optional protection)
-        const userAgent = request.headers.get('user-agent') || '';
-        const allowedAgents = ['cron-job.org', 'curl', 'insomnia', 'postman'];
-        const isAllowedAgent = allowedAgents.some(agent =>
-            userAgent.toLowerCase().includes(agent.toLowerCase())
-        );
-
-        // In production, uncomment to enforce:
-        // if (!isAllowedAgent && process.env.NODE_ENV === 'production') {
-        //     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-        // }
-
-        // 3. Defense in Depth - Time validation
-        const schedule = getScheduledPage();
-        if (!schedule) {
-            const duration = Date.now() - startTime;
-            await logCronExecution({
-                execution_key: executionKey,
-                executed: false,
-                reason: 'outside_posting_window',
-                duration_ms: duration
-            });
-            return NextResponse.json({
-                executed: false,
-                reason: 'outside_posting_window',
-                message: 'Outside operating hours (05:00-22:00 WIB)'
-            });
-        }
-
-        // 4. Check Kill Switch
+        // 2. Check system enabled
         const enabled = await isSystemEnabled();
         if (!enabled) {
-            const duration = Date.now() - startTime;
-            await logCronExecution({
-                execution_key: executionKey,
-                executed: false,
-                reason: 'disabled',
-                duration_ms: duration
-            });
             return NextResponse.json({
                 executed: false,
-                reason: 'disabled',
-                message: 'System is disabled (Kill Switch ON)'
+                reason: 'system_disabled'
             });
         }
 
-        // 5. Idempotency check - prevent duplicate execution
-        const db = getDb();
-        const existingRun = await db.collection('cron_runs').doc(executionKey).get();
-
-        if (existingRun.exists) {
-            const duration = Date.now() - startTime;
-            await logCronExecution({
-                execution_key: executionKey,
-                executed: false,
-                reason: 'already_executed',
-                duration_ms: duration
-            });
+        // 3. Get scheduled page
+        const schedule = getScheduledPage();
+        if (!schedule) {
             return NextResponse.json({
                 executed: false,
-                reason: 'already_executed',
-                message: `Slot ${executionKey} already processed`
+                reason: 'outside_hours',
+                message: 'Operating hours: 05:00-22:00 WIB'
             });
         }
 
-        // Mark this slot as executed (idempotency)
-        await db.collection('cron_runs').doc(executionKey).set({
-            started_at: nowWIB().toISOString(),
+        const { pageId } = schedule;
+
+        // 4. Check idempotency
+        const { data: existingRun } = await supabase
+            .from(TABLES.CRON_RUNS)
+            .select('*')
+            .eq('execution_key', executionKey)
+            .single();
+
+        if (existingRun) {
+            return NextResponse.json({
+                executed: false,
+                reason: 'already_executed',
+                execution_key: executionKey
+            });
+        }
+
+        // 5. Create cron run record
+        await supabase.from(TABLES.CRON_RUNS).insert({
+            execution_key: executionKey,
+            page_id: pageId,
             status: 'running'
         });
 
-        const { pageId } = schedule;
-        const now = nowWIB();
-
-        // Get next content for this page
-        const contentQuery = await db
-            .collection(COLLECTIONS.CONTENT)
-            .where('page_id', '==', pageId)
-            .orderBy('used_count', 'asc')
-            .orderBy('created_at', 'asc')
+        // 6. Get unused content
+        const { data: content } = await supabase
+            .from(TABLES.CONTENT)
+            .select('*')
+            .eq('page_id', pageId)
+            .eq('used_count', 0)
             .limit(1)
-            .get();
+            .single();
 
-        if (contentQuery.empty) {
-            const duration = Date.now() - startTime;
-            await db.collection('cron_runs').doc(executionKey).update({
-                status: 'completed',
-                result: 'no_content'
-            });
-            await logCronExecution({
-                execution_key: executionKey,
-                executed: false,
-                reason: 'no_content',
-                page_id: pageId,
-                posts_processed: 0,
-                posts_published: 0,
-                duration_ms: duration
-            });
+        if (!content) {
+            await supabase.from(TABLES.CRON_RUNS)
+                .update({ status: 'no_content' })
+                .eq('execution_key', executionKey);
+
             return NextResponse.json({
                 executed: false,
                 reason: 'no_content',
@@ -206,52 +162,18 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        const contentDoc = contentQuery.docs[0];
-        const content = contentDoc.data();
+        // 7. Get page config (access token)
+        const { data: pageConfig } = await supabase
+            .from(TABLES.PAGES)
+            .select('*')
+            .eq('id', pageId)
+            .single();
 
-        // Get page config (access token)
-        const pageDoc = await db
-            .collection(COLLECTIONS.PAGES)
-            .doc(pageId)
-            .get();
+        if (!pageConfig?.access_token) {
+            await supabase.from(TABLES.CRON_RUNS)
+                .update({ status: 'no_token' })
+                .eq('execution_key', executionKey);
 
-        if (!pageDoc.exists) {
-            const duration = Date.now() - startTime;
-            await db.collection('cron_runs').doc(executionKey).update({
-                status: 'completed',
-                result: 'no_page_config'
-            });
-            await logCronExecution({
-                execution_key: executionKey,
-                executed: false,
-                reason: 'no_page_config',
-                page_id: pageId,
-                duration_ms: duration
-            });
-            return NextResponse.json({
-                executed: false,
-                reason: 'no_page_config',
-                message: `Page config not found for ${pageId}`
-            });
-        }
-
-        const pageData = pageDoc.data()!;
-        const fbPageId = pageData.fb_page_id;
-        const accessToken = pageData.access_token;
-
-        if (!accessToken) {
-            const duration = Date.now() - startTime;
-            await db.collection('cron_runs').doc(executionKey).update({
-                status: 'completed',
-                result: 'no_token'
-            });
-            await logCronExecution({
-                execution_key: executionKey,
-                executed: false,
-                reason: 'no_token',
-                page_id: pageId,
-                duration_ms: duration
-            });
             return NextResponse.json({
                 executed: false,
                 reason: 'no_token',
@@ -259,91 +181,59 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        // Download image from Drive
+        // 8. Download image from Cloudinary
         let imageData: Buffer;
         try {
-            imageData = await downloadFromDrive(content.drive_file_id);
+            if (!content.cloudinary_url) {
+                throw new Error('No cloudinary_url');
+            }
+            const response = await fetch(content.cloudinary_url);
+            const arrayBuffer = await response.arrayBuffer();
+            imageData = Buffer.from(arrayBuffer);
         } catch (error) {
-            const duration = Date.now() - startTime;
-            await db.collection('cron_runs').doc(executionKey).update({
-                status: 'error',
-                result: 'drive_error'
-            });
-            await db.collection(COLLECTIONS.LOGS).add({
-                page_id: pageId,
-                content_id: contentDoc.id,
-                success: false,
-                error_type: 'ERR_DRIVE',
-                error_message: String(error),
-                created_at: now.toISOString()
-            });
-            await logCronExecution({
-                execution_key: executionKey,
-                executed: true,
-                success: false,
-                error_type: 'ERR_DRIVE',
-                error_message: String(error),
-                page_id: pageId,
-                posts_processed: 1,
-                posts_published: 0,
-                duration_ms: duration
-            });
+            await supabase.from(TABLES.CRON_RUNS)
+                .update({ status: 'image_error' })
+                .eq('execution_key', executionKey);
 
             return NextResponse.json({
                 executed: true,
                 success: false,
-                error_type: 'ERR_DRIVE',
-                error_message: String(error)
+                error: 'Failed to fetch image'
             });
         }
 
-        // Post to Facebook
+        // 9. Post to Facebook
         const fbResult = await postToFacebook(
-            fbPageId,
-            accessToken,
+            pageConfig.fb_page_id,
+            pageConfig.access_token,
             imageData,
             content.base_caption
         );
 
-        // Update content used count
-        await contentDoc.ref.update({
-            used_count: (content.used_count || 0) + 1,
-            last_used_at: now.toISOString()
-        });
+        // 10. Update content used count
+        await supabase
+            .from(TABLES.CONTENT)
+            .update({
+                used_count: (content.used_count || 0) + 1,
+                last_used_at: new Date().toISOString()
+            })
+            .eq('id', content.id);
 
-        const duration = Date.now() - startTime;
-
-        // Update cron_runs
-        await db.collection('cron_runs').doc(executionKey).update({
-            status: 'completed',
-            result: fbResult.success ? 'success' : 'fb_error',
-            completed_at: nowWIB().toISOString()
-        });
-
-        // Log to posting logs
-        await db.collection(COLLECTIONS.LOGS).add({
+        // 11. Log posting
+        await supabase.from(TABLES.POSTING_LOGS).insert({
             page_id: pageId,
-            content_id: contentDoc.id,
+            content_id: content.id,
             success: fbResult.success,
             post_id: fbResult.postId || null,
-            error_type: fbResult.success ? null : 'ERR_FB',
             error_message: fbResult.error || null,
-            duration_ms: duration,
-            created_at: now.toISOString()
+            source: 'fresh'
         });
 
-        // Log to cron_logs
-        await logCronExecution({
-            execution_key: executionKey,
-            executed: true,
-            success: fbResult.success,
-            page_id: pageId,
-            posts_processed: 1,
-            posts_published: fbResult.success ? 1 : 0,
-            error_type: fbResult.success ? undefined : 'ERR_FB',
-            error_message: fbResult.error,
-            duration_ms: duration
-        });
+        // 12. Update cron run
+        const duration = Date.now() - startTime;
+        await supabase.from(TABLES.CRON_RUNS)
+            .update({ status: fbResult.success ? 'success' : 'fb_error' })
+            .eq('execution_key', executionKey);
 
         return NextResponse.json({
             executed: true,
@@ -354,34 +244,11 @@ export async function POST(request: NextRequest) {
             duration_ms: duration
         });
 
-    } catch (error) {
-        const duration = Date.now() - startTime;
+    } catch (error: any) {
         console.error('Cron error:', error);
-
-        await logCronExecution({
-            execution_key: executionKey,
-            executed: true,
-            success: false,
-            error_type: 'ERR_UNKNOWN',
-            error_message: String(error),
-            duration_ms: duration
-        });
-
         return NextResponse.json({
-            executed: true,
-            success: false,
-            error_type: 'ERR_UNKNOWN',
-            error_message: String(error),
-            duration_ms: duration
+            executed: false,
+            error: error.message
         }, { status: 500 });
     }
-}
-
-// GET method returns info only (no execution)
-export async function GET() {
-    return NextResponse.json({
-        endpoint: '/api/cron',
-        method: 'POST required',
-        message: 'Use POST method with Authorization header to trigger cron'
-    });
 }
