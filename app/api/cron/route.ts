@@ -38,7 +38,7 @@ async function postToFacebook(
         // Step 1: Upload photo as UNPUBLISHED to get photo_id
         const uploadFormData = new FormData();
         uploadFormData.append('source', new Blob([new Uint8Array(imageData)], { type: 'image/jpeg' }), 'image.jpg');
-        uploadFormData.append('published', 'false'); // Upload tanpa publish dulu
+        uploadFormData.append('published', 'false');
         uploadFormData.append('access_token', accessToken);
 
         const uploadResponse = await fetch(`https://graph.facebook.com/v19.0/${pageId}/photos`, {
@@ -52,17 +52,22 @@ async function postToFacebook(
             return { success: false, error: `Upload failed: ${uploadResult.error.message}` };
         }
 
-        const photoId = uploadResult.id;
+        const mediaId = uploadResult.id;
 
-        // Step 2: Create feed post with attached_media (photo)
-        const feedFormData = new FormData();
-        feedFormData.append('message', caption);
-        feedFormData.append('attached_media[0]', JSON.stringify({ media_fbid: photoId }));
-        feedFormData.append('access_token', accessToken);
+        // Step 2: Create feed post with attached_media
+        // Use application/json format for proper attached_media handling
+        const feedPayload = {
+            message: caption,
+            attached_media: [{ media_fbid: mediaId }],
+            access_token: accessToken
+        };
 
         const feedResponse = await fetch(`https://graph.facebook.com/v19.0/${pageId}/feed`, {
             method: 'POST',
-            body: feedFormData,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(feedPayload),
         });
 
         const feedResult = await feedResponse.json();
