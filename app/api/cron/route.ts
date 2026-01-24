@@ -27,7 +27,7 @@ function getScheduledPage(): { pageId: string; slotIndex: number } | null {
     return { pageId: page.id, slotIndex };
 }
 
-// Post to Facebook - Direct photo post to feed
+// Post to Facebook - 2-step method to ensure post appears in Feed
 async function postToFacebook(
     pageId: string,
     accessToken: string,
@@ -35,26 +35,44 @@ async function postToFacebook(
     caption: string
 ): Promise<{ success: boolean; postId?: string; error?: string }> {
     try {
-        // Post photo directly with message - this posts to feed AND photos album
-        const formData = new FormData();
-        formData.append('source', new Blob([new Uint8Array(imageData)], { type: 'image/jpeg' }), 'image.jpg');
-        formData.append('message', caption); // Caption/message untuk post
-        formData.append('published', 'true'); // Langsung publish ke feed
-        formData.append('access_token', accessToken);
+        // Step 1: Upload photo as UNPUBLISHED to get photo_id
+        const uploadFormData = new FormData();
+        uploadFormData.append('source', new Blob([new Uint8Array(imageData)], { type: 'image/jpeg' }), 'image.jpg');
+        uploadFormData.append('published', 'false'); // Upload tanpa publish dulu
+        uploadFormData.append('access_token', accessToken);
 
-        const response = await fetch(`https://graph.facebook.com/v19.0/${pageId}/photos`, {
+        const uploadResponse = await fetch(`https://graph.facebook.com/v19.0/${pageId}/photos`, {
             method: 'POST',
-            body: formData,
+            body: uploadFormData,
         });
 
-        const result = await response.json();
+        const uploadResult = await uploadResponse.json();
 
-        if (result.error) {
-            return { success: false, error: result.error.message };
+        if (uploadResult.error) {
+            return { success: false, error: `Upload failed: ${uploadResult.error.message}` };
         }
 
-        // Response: { id: "photo_id", post_id: "page_id_post_id" }
-        return { success: true, postId: result.post_id || result.id };
+        const photoId = uploadResult.id;
+
+        // Step 2: Create feed post with attached_media (photo)
+        const feedFormData = new FormData();
+        feedFormData.append('message', caption);
+        feedFormData.append('attached_media[0]', JSON.stringify({ media_fbid: photoId }));
+        feedFormData.append('access_token', accessToken);
+
+        const feedResponse = await fetch(`https://graph.facebook.com/v19.0/${pageId}/feed`, {
+            method: 'POST',
+            body: feedFormData,
+        });
+
+        const feedResult = await feedResponse.json();
+
+        if (feedResult.error) {
+            return { success: false, error: `Feed post failed: ${feedResult.error.message}` };
+        }
+
+        // Response: { id: "page_id_post_id" }
+        return { success: true, postId: feedResult.id };
     } catch (error) {
         return { success: false, error: String(error) };
     }
