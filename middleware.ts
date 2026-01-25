@@ -6,6 +6,8 @@ import { verifyToken, AUTH_CONFIG } from '@/lib/auth';
 // Paths that do not require authentication
 const PUBLIC_PATHS = [
     '/login',
+    '/privacy',         // Public for Facebook App Review
+    '/terms',           // Public for Facebook App Review
     '/api/auth/login',
     '/api/auth/logout',
     '/api/cron',        // Protected by CRON_SECRET
