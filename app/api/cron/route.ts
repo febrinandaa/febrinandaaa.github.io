@@ -6,22 +6,29 @@ import { FANPAGES } from '@/lib/config';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// Generate idempotency key
+// Generate idempotency key - using 13 minute intervals for 2-hour per FP schedule
 function getExecutionKey(): string {
     const now = nowWIB();
-    const roundedMinute = Math.floor(now.minute() / 6) * 6;
+    // Round to nearest 13-minute slot
+    const roundedMinute = Math.floor(now.minute() / 13) * 13;
     return now.format('YYYYMMDD-HH') + `-${String(roundedMinute).padStart(2, '0')}`;
 }
 
-// Calculate which page should post
+// Calculate which page should post - 2 hour interval per fanpage
+// With 9 fanpages and 13-min cron interval, each FP posts every ~117 min (~2 hours)
 function getScheduledPage(): { pageId: string; slotIndex: number } | null {
     const now = nowWIB();
     const hour = now.hour();
     const minute = now.minute();
 
+    // Operating hours: 05:00 - 22:00 WIB
     if (hour < 5 || hour >= 22) return null;
 
-    const slotIndex = Math.floor(minute / 6) % FANPAGES.length;
+    // Calculate total minutes since 05:00
+    const minutesSinceStart = (hour - 5) * 60 + minute;
+
+    // Each slot is 13 minutes, rotate through all fanpages
+    const slotIndex = Math.floor(minutesSinceStart / 13) % FANPAGES.length;
     const page = FANPAGES[slotIndex];
 
     return { pageId: page.id, slotIndex };
