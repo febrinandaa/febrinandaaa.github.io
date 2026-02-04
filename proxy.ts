@@ -1,4 +1,3 @@
-
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { verifyToken, AUTH_CONFIG } from '@/lib/auth';
@@ -17,7 +16,7 @@ const PUBLIC_PATHS = [
     '/api/image',       // Image proxy API
 ];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
     const path = request.nextUrl.pathname;
 
     // 1. Allow public paths

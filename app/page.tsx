@@ -54,7 +54,7 @@ export default function Dashboard() {
             <div className="text-right">
               <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">Target Stock</div>
               <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{data.target} Posts</div>
-              <div className="text-xs text-slate-400">({data.config.duration} days @ {data.config.interval}h interval)</div>
+              <div className="text-xs text-slate-400">({data.config?.duration ?? 7} days @ {data.config?.interval ?? 2}h interval)</div>
             </div>
           )}
         </div>
@@ -82,7 +82,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="text-2xl font-bold text-slate-800 dark:text-white">
-                  {data ? Object.values(data.stock).reduce((a, b) => a + b, 0) : '...'}
+                  {data?.stock ? Object.values(data.stock).reduce((a, b) => a + b, 0) : '...'}
                 </p>
                 <p className="text-sm text-slate-500 dark:text-slate-400">Total Pending Posts</p>
               </div>

@@ -10,7 +10,8 @@ import {
     ChevronLeft,
     ChevronRight,
     Home,
-    LogOut
+    LogOut,
+    Images
 } from 'lucide-react';
 import { useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
@@ -106,6 +107,35 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 )}
                             </Link>
                         ))}
+                    </div>
+
+                    {/* Multi-Photo Section */}
+                    {!collapsed && (
+                        <div className="px-4 py-2 mt-4">
+                            <p className="text-xs font-semibold text-pink-500 uppercase tracking-wider">
+                                Multi-Photo
+                            </p>
+                        </div>
+                    )}
+                    <div className="px-3">
+                        <Link
+                            href="/content/FP_9/multi-photo"
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors group ${pathname === '/content/FP_9/multi-photo'
+                                ? 'bg-pink-500/20 text-pink-400 border border-pink-500/30'
+                                : 'text-slate-600 dark:text-slate-400 hover:bg-pink-50 dark:hover:bg-pink-500/10 hover:text-pink-600 dark:hover:text-pink-400'
+                                }`}
+                            title={collapsed ? 'Multi-Photo' : undefined}
+                        >
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${pathname === '/content/FP_9/multi-photo'
+                                ? 'bg-pink-100 dark:bg-pink-500/30 text-pink-600 dark:text-pink-300'
+                                : 'bg-pink-50 dark:bg-pink-500/10 group-hover:bg-pink-100 dark:group-hover:bg-pink-500/20 text-pink-500 dark:text-pink-400'
+                                }`}>
+                                <Images className="w-4 h-4" />
+                            </div>
+                            {!collapsed && (
+                                <span className="font-medium truncate">Inspirasi Bunda</span>
+                            )}
+                        </Link>
                     </div>
                 </nav>
 

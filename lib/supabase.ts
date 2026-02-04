@@ -31,10 +31,17 @@ export const supabase = {
 export const TABLES = {
     PAGES: 'pages',
     CONTENT: 'content',
+    CONTENT_GROUPS: 'content_groups',
     POSTING_LOGS: 'posting_logs',
     CRON_RUNS: 'cron_runs',
     SETTINGS: 'settings'
 } as const;
+
+// Multi-photo post configuration
+export const MULTI_PHOTO_CONFIG = {
+    MAX_IMAGES: 10,
+    ENABLED_PAGES: ['FP_9'], // Inspirasi Bunda only for now
+};
 
 // Helper to check if system is enabled
 export async function isSystemEnabled(): Promise<boolean> {
@@ -60,6 +67,16 @@ export interface Page {
     created_at: string;
 }
 
+export interface ContentGroup {
+    id: string;
+    page_id: string;
+    title: string;
+    main_caption: string;
+    status: 'pending' | 'used';
+    created_at: string;
+    used_at: string | null;
+}
+
 export interface Content {
     id: string;
     page_id: string;
@@ -70,4 +87,8 @@ export interface Content {
     used_count: number;
     last_used_at: string | null;
     created_at: string;
+    // Multi-photo fields
+    group_id: string | null;
+    individual_caption: string | null;
+    sort_order: number;
 }
